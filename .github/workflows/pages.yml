@@ -1,0 +1,71 @@
+name: Deploy Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Vendor 3D assets if missing
+        run: |
+          set -euo pipefail
+          if [ ! -s s280bhss-solar.glb ]; then
+            curl -fsSL -o s280bhss-solar.glb https://litter.catbox.moe/c1xvr5.glb
+          fi
+          if [ ! -s s280bhss-solar.usdz ]; then
+            curl -fsSL -o s280bhss-solar.usdz https://litter.catbox.moe/yxryqi.usdz
+          fi
+          if [ ! -s iso.jpg ]; then
+            curl -fsSL -o iso.jpg https://litter.catbox.moe/8bjzew.jpg
+          fi
+          if [ ! -s top.jpg ]; then
+            curl -fsSL -o top.jpg https://litter.catbox.moe/nnedmz.jpg
+          fi
+          ls -l s280bhss-solar.glb s280bhss-solar.usdz iso.jpg top.jpg
+
+      - name: Commit vendored assets
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add s280bhss-solar.glb s280bhss-solar.usdz iso.jpg top.jpg .nojekyll
+          if git diff --cached --quiet; then
+            echo "assets already committed"
+          else
+            git commit -m "Vendor GLB, USDZ, and preview JPEGs"
+            git push
+          fi
+
+      - name: Enable GitHub Pages (workflow)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --method POST repos/${{ github.repository }}/pages \
+            -f build_type=workflow \
+            || gh api --method PUT repos/${{ github.repository }}/pages \
+              -f build_type=workflow \
+            || true
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v4
